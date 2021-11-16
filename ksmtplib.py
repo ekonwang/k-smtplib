@@ -1,43 +1,41 @@
 import socket
 import datetime
+import re
 from email.base64mime import body_encode as encode_base64
 
-_MAXLINE = 8192
-_CHANLLENGE_TIMES = 5
+class KSMTPException(OSError):
+    """Base class for all exceptions raised by this module."""
 
-class SMTPError(OSError):
-    """ 
-    SMTP error might happens in connection, verification etc.
-     """
-    def __init__(self, msg):
-        self.args = (msg)
+class KSMTPServerDisconnected(KSMTPException):
+    """
+    """
 
-class SMTP(object):
+class KSMTPResponseException(KSMTPException):
+    """
+    """
+    def __init__(self, code, msg):
+        self.smtp_code = code
+        self.smtp_error = msg
+        self.args = (code, msg)
+
+_MAXLINE = 512
+
+def _fix_eols(data):
+    return  re.sub(r'(?:\r\n|\n|\r(?!\n))', '\r\n', data)
+
+class KSMTP(object):
     def __init__(self, debug_level = 0):
         self.timeout = socket._GLOBAL_DEFAULT_TIMEOUT
-        self.debug_level = debug_level
+        self.debuglevel = debug_level
     
     def debug(self, *args):
-        if self.debug_level>0:
+        if self.debuglevel>0:
             print(datetime.datetime.now(), end=' ')
             for arg in args:
-                print(arg.replace('\r\n', '\\r\\n'), end=' ')
+                if isinstance(arg, str):
+                    arg = arg.replace('\r\n', '\\r\\n')
+                print(arg, end=' ')
             print()
-
-    def connect(self, server : str, port : int):
-        self.debug('connecting: %s:%d' %(server, port))
-        self.sock = socket.create_connection((server, port), self.timeout)
-    
-    def send(self, s):
-        cmd = s.encode('ascii')
-        self.debug('send: %s' %(s))
-        if self.sock:
-            try:
-                self.sock.sendall(cmd)
-            except OSError as e:
-                raise e
-        else:
-            raise SMTPError('socket no found')
 
     def getreply(self):
         resp = []
@@ -48,14 +46,16 @@ class SMTP(object):
                 line = self.file.readline(_MAXLINE + 1)
             except OSError as e:
                 self.close()
-                raise SMTPError("Connection unexpectedly closed: "
+                raise KSMTPServerDisconnected("Connection unexpectedly closed: "
                                              + str(e))
             if not line:
-                raise SMTPError("Connection unexpectedly closed")
-            self.debug('replyx:', repr(line))
+                self.close()
+                raise KSMTPServerDisconnected("Connection unexpectedly closed")
+            if self.debuglevel > 0:
+                self.debug('reply:', repr(line))
             if len(line) > _MAXLINE:
                 self.close()
-                raise SMTPError("Line too long.")
+                raise KSMTPResponseException(500, "Line too long.")
             resp.append(line[4:].strip(b' \t\r\n'))
             code = line[:3]
             # Check that the error code is syntactically correct.
@@ -70,37 +70,76 @@ class SMTP(object):
                 break
 
         errmsg = b"\n".join(resp)
-        self.debug('reply: retcode (%s); Msg: %a' % (errcode, errmsg))
+        if self.debuglevel > 0:
+            self.debug('reply: retcode (%s); Msg: %a' % (errcode, errmsg))
         return errcode, errmsg
-    
-    def putcmd(self, *args : str):
-        cmd = ' '.join(args) + '\r\n'
-        # self.debug(cmd)
-        self.send(cmd)
-        return cmd
 
-    def login(self, user, password):
-        cmd = 'AUTH PLAIN'
-        secret = '\0%s\0%s' %(user, password)
-        verify = encode_base64(secret.encode('ascii'), eol = '')
-        # finalcmd = cmd + ' ' + verify + '\r\n'
-        self.challenge_time = 5
-        
-        while(self.challenge_time > 0):
-            # self.send(finalcmd)
-            finalcmd = self.putcmd(cmd, verify)
-            self.file = None
-            code, msg = self.getreply()
-            if code in (235, 503):
-                return (code, msg)
-            self.challenge_time -= 1
-        self.debug('verify token: %s' %finalcmd)
-        raise SMTPError('could not login')
+    def close(self):
+        self.sock = None
+        self.file = None
     
-    def sendmail(self, dst, body):
-        # cmd format to send a mail:
-        # rcpt TO:<addr@sth.sth[.sth]> *options
-        pass
+    def get_code(response : tuple):
+        return response[0]
+
+    def sendcmd_getreply(self, s : str):
+        if self.sock:
+            if isinstance(s, str):
+                s = s.encode('ascii')
+            if self.debuglevel > 0:
+                self.debug('send', repr(s))
+            self.sock.sendall(s)
+        else:
+            raise KSMTPException('please connect first.\n')
+        return self.getreply()
+
+    def connect(self, host : str, port : int):
+        self.sock = socket.create_connection((host, port))
+        self.file = None
+        code, resp = self.getreply()
+        if code == 220:
+            return (code, resp)
+        else:
+            raise KSMTPException('can not connect.')
+    
+    def login(self, user, password):
+        cmd = 'ehlo 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa\r\n'
+        code, resp = self.sendcmd_getreply(cmd)
+        if code != 250:
+            return None
+        chanllenge_times = 1
+        userandpass = ('\0%s\0%s' %(user, password))
+        userandpass = encode_base64(userandpass.encode('ascii'), eol='') # base64 protocol.
+        cmd = 'AUTH PLAIN %s\r\n' %userandpass
+        code, resp = self.sendcmd_getreply(cmd)
+        while code != 235 and chanllenge_times <= 5: # login poll.
+            code, resp = self.sendcmd_getreply(cmd)
+        if code == 235 or code == 250: # login successfully or already login.
+            return (code, resp)
+        else:
+            raise KSMTPException('can not login.')
+
+    def check_email_exception(self, code):
+        if code != 250 and code != 354:
+            raise KSMTPException('can not email.')
+
+    def email(self, From : str, To : list, Content : str):
+        Content = (_fix_eols(Content)).encode('ascii') + b"." + b"\r\n"
+        cmd = 'mail FROM:<%s> size=%d\r\n' %(From, len(Content))
+        code, _ = self.sendcmd_getreply(cmd)
+        self.check_email_exception(code)
+        for to in To:
+            cmd = 'rcpt TO:<%s>\r\n' %(to)
+            code, _ = self.sendcmd_getreply(cmd)
+        self.check_email_exception(code)
+        cmd = 'data\r\n'
+        code, _ = self.sendcmd_getreply(cmd)
+        self.check_email_exception(code)
+        cmd = Content
+        code, resp = self.sendcmd_getreply(cmd)
+        self.check_email_exception(code)
+        return (code, resp)
+
+    
 
 
 
