@@ -1,18 +1,8 @@
-<<<<<<< HEAD
 /__pycache__
 __pycache__/
 /__pycache__/
 repo/
 test*
 ssl*
-=======
-__pycache__/
-/__pycache__
-*log
-repo/
-/repo
-test*
-ssl*
 test.*
 ssl1.*
->>>>>>> master
