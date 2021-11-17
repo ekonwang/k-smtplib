@@ -1,17 +1,29 @@
 import socket
 import datetime
 import re
+<<<<<<< HEAD
 import ssl
+=======
+>>>>>>> a9dc53befce1b1626e54b7799c30137d16964aef
 from email.base64mime import body_encode as encode_base64
 
 class KSMTPException(OSError):
     """Base class for all exceptions raised by this module."""
 
 class KSMTPServerDisconnected(KSMTPException):
+<<<<<<< HEAD
     """Disconnection exception class."""
 
 class KSMTPResponseException(KSMTPException):
     """Response exception class."""
+=======
+    """
+    """
+
+class KSMTPResponseException(KSMTPException):
+    """
+    """
+>>>>>>> a9dc53befce1b1626e54b7799c30137d16964aef
     def __init__(self, code, msg):
         self.smtp_code = code
         self.smtp_error = msg
@@ -57,11 +69,20 @@ class KSMTP(object):
                 raise KSMTPResponseException(500, "Line too long.")
             resp.append(line[4:].strip(b' \t\r\n'))
             code = line[:3]
+<<<<<<< HEAD
+=======
+            # Check that the error code is syntactically correct.
+            # Don't attempt to read a continuation line if it is broken.
+>>>>>>> a9dc53befce1b1626e54b7799c30137d16964aef
             try:
                 errcode = int(code)
             except ValueError:
                 errcode = -1
                 break
+<<<<<<< HEAD
+=======
+            # Check if multiline response.
+>>>>>>> a9dc53befce1b1626e54b7799c30137d16964aef
             if line[3:4] != b"-":
                 break
 
@@ -76,12 +97,15 @@ class KSMTP(object):
     
     def get_code(response : tuple):
         return response[0]
+<<<<<<< HEAD
     
     def ehlo(self):
         cmd = 'ehlo 1.0.0.127.in-addr.arpa\r\n'
         code, resp = self.sendcmd_getreply(cmd)
         if code != 250:
             return None
+=======
+>>>>>>> a9dc53befce1b1626e54b7799c30137d16964aef
 
     def sendcmd_getreply(self, s : str):
         if self.sock:
