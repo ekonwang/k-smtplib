@@ -1,16 +1,25 @@
+from datetime import datetime
 import ksmtplib
 from email.mime.text import MIMEText
 from email.header import Header
+
+current_time_stamp = str(datetime.now())
 
 mail_host = "smtp.qq.com"  
 mail_user = "yifouforum@qq.com" 
 mail_pass = "frgpfojetmifhjeg" 
 
-receivers = ['1547246193@qq.com']
-message = MIMEText('你好帅我好爱\r\n哈哈哈你好\r\n', 'plain', 'utf-8')
+content = f'''
+神秘博士：
+    您好，这里是M78星云给您发来的问候。
+此致
+'''
+
+receivers = ['g1547246193@gmail.com']
+message = MIMEText(content, 'plain', 'utf-8')
 message['From'] = Header(mail_user, 'utf-8')
 message['To'] = Header((', ').join(receivers), 'utf-8')
-subject = 'KSMTP test'
+subject = 'KSMTP Test %s' %current_time_stamp
 message['Subject'] = Header(subject, 'utf-8')
 
 try:
